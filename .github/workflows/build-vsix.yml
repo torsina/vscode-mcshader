@@ -1,36 +1,52 @@
-name: Build VSIX
+name: Build and Release VSIX
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # Install root deps
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      # Optional: only if the extension needs building (tsc/webpack/etc)
-      - name: Build
-        run: npm run build --if-present
+      # IMPORTANT: install client deps (required by postinstall logic)
+      - name: Install client dependencies
+        run: cd client && npm install
 
-      - name: Package VS Code extension
+      # This is the REAL build pipeline (from package.json)
+      - name: Build extension (official pipeline)
+        run: npm run vscode:prepublish
+
+      # Package extension
+      - name: Package VSIX
         run: npx @vscode/vsce package
 
-      - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
+      - name: Get VSIX file
+        id: vsix
+        run: echo "file=$(ls *.vsix | head -n 1)" >> $GITHUB_OUTPUT
+
+      # Per-push release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: vscode-extension
-          path: "*.vsix"
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          prerelease: true
+          files: ${{ steps.vsix.outputs.file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
